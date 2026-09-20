@@ -1,0 +1,6 @@
+{
+  "scenario": "three rounds resolve one accepted issue, one rejected after a counterargument, and one duplicate",
+  "expected_outcome": "CONSENSUS",
+  "expected_rounds": 3,
+  "issues": ["A-1", "A-2", "B-1"]
+}

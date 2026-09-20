@@ -1,0 +1,82 @@
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tty: false
+  stdin_open: false
+  restart: unless-stopped
+  pids_limit: 128
+  mem_limit: 512M
+
+services:
+  engine:
+    <<: *hardened
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.engine
+    user: "10001:10001"
+    command: ["serve", "--config", "/config/reviewer.toml"]
+    volumes:
+      - type: bind
+        source: ${PEER_REVIEWER_INPUT:-./input}
+        target: /input
+        read_only: true
+      - type: bind
+        source: ${PEER_REVIEWER_SESSIONS:-./sessions}
+        target: /sessions
+      - type: bind
+        source: ${PEER_REVIEWER_CONFIG:-./config}
+        target: /config
+        read_only: true
+      - control:/control
+      - claude-inbox:/mailboxes/claude/inbox
+      - claude-outbox:/mailboxes/claude/outbox
+      - codex-inbox:/mailboxes/codex/inbox
+      - codex-outbox:/mailboxes/codex/outbox
+      - engine-work:/work
+
+  claude:
+    <<: *hardened
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.claude
+    user: "10001:10001"
+    environment:
+      PEER_REVIEWER_EXECUTABLE: /usr/local/bin/claude
+      PEER_REVIEWER_REVIEWER: A
+      PEER_REVIEWER_ACCOUNT_FINGERPRINT: ${CLAUDE_ACCOUNT_FINGERPRINT:-unconfigured}
+      PEER_REVIEWER_MODEL_BUCKET: ${CLAUDE_MODEL_BUCKET:-subscription}
+    volumes:
+      - claude-inbox:/mailbox/inbox
+      - claude-outbox:/mailbox/outbox
+      - claude-work:/work
+      - claude-auth:/auth
+
+  codex:
+    <<: *hardened
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.codex
+    user: "10001:10001"
+    environment:
+      PEER_REVIEWER_EXECUTABLE: /usr/local/bin/codex
+      PEER_REVIEWER_REVIEWER: B
+      PEER_REVIEWER_ACCOUNT_FINGERPRINT: ${CODEX_ACCOUNT_FINGERPRINT:-unconfigured}
+      PEER_REVIEWER_MODEL_BUCKET: ${CODEX_MODEL_BUCKET:-subscription}
+    volumes:
+      - codex-inbox:/mailbox/inbox
+      - codex-outbox:/mailbox/outbox
+      - codex-work:/work
+      - codex-auth:/auth
+
+volumes:
+  control:
+  engine-work:
+  claude-inbox:
+  claude-outbox:
+  claude-work:
+  claude-auth:
+  codex-inbox:
+  codex-outbox:
+  codex-work:
+  codex-auth:

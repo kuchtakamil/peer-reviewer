@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "session_id": "s-001",
+  "round_no": 2,
+  "reviewer": "B",
+  "input_state_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "review_complete": true,
+  "new_issues": [],
+  "proposals": [],
+  "positions": [
+    {
+      "issue_id": "A-1",
+      "action": "accept",
+      "version_ref": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "argument_id": "B-r2-1",
+      "reason": "The proposed boundary resolves the concern.",
+      "responds_to": ["A-r1-1"],
+      "evidence": []
+    }
+  ]
+}

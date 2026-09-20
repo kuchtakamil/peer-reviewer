@@ -1,0 +1,14 @@
+{
+  "provider": "codex",
+  "account_fingerprint": "fixture:codex-account",
+  "model_bucket": "fixture-bucket",
+  "observed_at": "2026-09-19T00:00:00Z",
+  "source": "app-server-fixture",
+  "confidence": "verified",
+  "five_hour": {
+    "used_percent": 23.5,
+    "resets_at": "2026-09-19T04:00:00Z",
+    "window_seconds": 18000
+  },
+  "other_blockers": []
+}

@@ -1,0 +1,15 @@
+FROM python:3.14-slim
+
+RUN useradd --create-home --uid 10001 reviewer
+WORKDIR /app
+COPY src /app/src
+RUN mkdir -p /sessions /control /mailboxes/claude/inbox /mailboxes/claude/outbox \
+      /mailboxes/codex/inbox /mailboxes/codex/outbox /work /config \
+    && printf '#!/bin/sh\nexec python -m peer_reviewer.cli "$@"\n' > /usr/local/bin/peer-reviewer \
+    && chmod 755 /usr/local/bin/peer-reviewer \
+    && chown -R 10001:10001 /sessions /control /mailboxes /work /config
+ENV PYTHONPATH=/app/src \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "peer_reviewer.cli"]

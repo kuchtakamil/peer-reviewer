@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "session_id": "s-001",
+  "round_no": 1,
+  "reviewer": "B",
+  "input_state_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "review_complete": true,
+  "new_issues": [],
+  "proposals": [],
+  "positions": []
+}

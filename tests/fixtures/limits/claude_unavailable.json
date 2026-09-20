@@ -1,0 +1,10 @@
+{
+  "provider": "claude",
+  "account_fingerprint": "fixture:claude-unavailable",
+  "model_bucket": "subscription",
+  "observed_at": "2026-09-19T00:00:00Z",
+  "source": "unavailable-stub",
+  "confidence": "unknown",
+  "five_hour": null,
+  "other_blockers": ["Claude Code capability probe has not run"]
+}

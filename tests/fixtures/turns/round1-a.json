@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "session_id": "s-001",
+  "round_no": 1,
+  "reviewer": "A",
+  "input_state_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "review_complete": true,
+  "new_issues": [
+    {
+      "id": "A-1",
+      "author": "A",
+      "anchor": {"line_start": 2, "line_end": 2, "quote": "Risky guarantee."},
+      "problem": "The guarantee is unqualified.",
+      "significance": "Readers may rely on an impossible promise.",
+      "reasoning": "The sentence gives no failure boundary.",
+      "suggested_fix": "State the supported failure boundary."
+    }
+  ],
+  "proposals": [
+    {
+      "local_ref": "proposal-a-1",
+      "issue_id": "A-1",
+      "payload": {
+        "problem": "The guarantee is unqualified.",
+        "fix": "State the supported failure boundary.",
+        "resolution": "accepted",
+        "rationale": "The boundary makes the claim testable.",
+        "duplicate_of": null,
+        "closes": []
+      }
+    }
+  ],
+  "positions": [
+    {
+      "issue_id": "A-1",
+      "action": "propose",
+      "version_ref": "proposal-a-1",
+      "argument_id": "A-r1-1",
+      "reason": "The source makes an absolute claim.",
+      "responds_to": [],
+      "evidence": []
+    }
+  ]
+}
