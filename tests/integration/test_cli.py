@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -157,6 +160,87 @@ def test_doctor_reports_unverified_subscription_and_never_api_fallback(tmp_path,
     assert any("limit read unavailable" in item for item in result["issues"])
     assert any("CLI version" in item for item in result["issues"])
     assert "API" not in json.dumps(result.get("actions", []))
+
+
+class DoctorAdapter:
+    def __init__(self, provider, confidence="verified"):
+        self.provider = provider
+        self.confidence = confidence
+
+    def read_limits(self):
+        now = datetime.now(timezone.utc)
+        return {
+            "provider": self.provider,
+            "account_fingerprint": f"{self.provider}:fixture",
+            "model_bucket": "subscription",
+            "observed_at": now.isoformat(),
+            "source": "fixture",
+            "confidence": self.confidence,
+            "five_hour": {"used_percent": 10.0, "resets_at": (now + timedelta(hours=1)).isoformat(), "window_seconds": 18000}
+            if self.confidence == "verified"
+            else None,
+            "other_blockers": [] if self.confidence == "verified" else ["account mismatch"],
+        } | ({} if self.confidence == "verified" else {"observed_account_fingerprint": f"{self.provider}:observed"})
+
+
+def run_doctor_with_workers(tmp_path, monkeypatch, capsys, *, versions, confidence="verified"):
+    from peer_reviewer.worker import Worker
+
+    mailboxes = tmp_path / "mailboxes"
+    monkeypatch.setenv("PEER_REVIEWER_MAILBOXES", str(mailboxes))
+    stop = threading.Event()
+    threads = []
+    for reviewer, provider in (("A", "claude"), ("B", "codex")):
+        for box in ("inbox", "outbox"):  # compose volumes exist before any message
+            (mailboxes / provider / box).mkdir(parents=True)
+        worker = Worker(
+            reviewer,
+            DoctorAdapter(provider, confidence),
+            mailboxes / provider / "inbox",
+            mailboxes / provider / "outbox",
+            tmp_path / f"worker-{provider}",
+            poll_seconds=0.001,
+            cli_version=versions[provider],
+        )
+
+        def loop(worker=worker):
+            while not stop.is_set():
+                if not worker.run_once():
+                    time.sleep(0.001)
+
+        thread = threading.Thread(target=loop, daemon=True)
+        thread.start()
+        threads.append(thread)
+    config = tmp_path / "reviewer.toml"
+    write_config(config)
+    try:
+        code = main(["doctor", "--config", str(config), "--sessions", str(tmp_path / "sessions")])
+    finally:
+        stop.set()
+        for thread in threads:
+            thread.join(1)
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_doctor_passes_with_verified_worker_readings_and_pinned_versions(tmp_path, monkeypatch, capsys):
+    code, result = run_doctor_with_workers(
+        tmp_path, monkeypatch, capsys, versions={"claude": "fixture", "codex": "fixture"}
+    )
+    assert result["issues"] == []
+    assert code == 0
+
+
+def test_doctor_reports_version_drift_and_observed_account(tmp_path, monkeypatch, capsys):
+    code, result = run_doctor_with_workers(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        versions={"claude": "9.9.9", "codex": "fixture"},
+        confidence="unknown",
+    )
+    assert code == 1
+    assert "claude CLI version mismatch: expected fixture, got 9.9.9" in result["issues"]
+    assert any("observed account fingerprint claude:observed" in item for item in result["issues"])
 
 
 def test_only_one_engine_can_own_a_session(tmp_path, monkeypatch):

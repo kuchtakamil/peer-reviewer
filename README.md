@@ -6,11 +6,11 @@ zarządza rundami, pilnuje limitów subskrypcji, zapisuje historię i generuje r
 nie używając płatnych kluczy API.
 
 > [!WARNING]
-> Projekt nie jest jeszcze gotowy do użycia produkcyjnego. Implementacja offline
-> i testy z atrapami działają, ale integracja z prawdziwymi kontami OAuth oraz
-> odczyt limitu Claude nie zostały potwierdzone. Obecne obrazy workerów nie
-> instalują jeszcze binariów Claude Code ani Codex. Szczegóły znajdują się w
-> [docs/feasibility.md](docs/feasibility.md).
+> Odczyt limitów obu dostawców działa bez generowania tokenów: Claude przez
+> `claude -p /usage`, Codex przez App Server `account/rateLimits/read`. Prawdziwe
+> tury obu CLI przechodzą walidację protokołu. Przed produkcją pozostają:
+> logowanie OAuth w wolumenach workerów, wyłączenie płatnego „extra usage” na obu
+> kontach i przypięcie modeli. Szczegóły są w [docs/feasibility.md](docs/feasibility.md).
 
 ## Jak to działa
 
@@ -32,9 +32,8 @@ Do pracy nad projektem potrzebne są:
 - [uv](https://docs.astral.sh/uv/);
 - Docker z obsługą Compose — do testów i docelowego uruchomienia kontenerów.
 
-Pełne uruchomienie z prawdziwymi recenzentami będzie dodatkowo wymagało
-zweryfikowanych wersji Claude Code CLI i Codex CLI oraz osobnego logowania OAuth
-dla każdego workera.
+Obrazy workerów instalują przypięte wersje CLI: Claude Code 2.1.280 i Codex
+0.156.1. Każdy worker ma osobny wolumen OAuth.
 
 ## Uruchomienie lokalne
 
@@ -67,27 +66,38 @@ Skopiuj przykładową konfigurację:
 cp config/example.toml config/reviewer.toml
 ```
 
-Następnie ustaw właściwe modele, wersje CLI i identyfikatory kont w
-`config/reviewer.toml`. Wartości `PIN_AFTER_LIVE_PREFLIGHT` oraz `unconfigured`
-są celowymi placeholderami i nie nadają się do wdrożenia.
+Zaloguj oba CLI, każde do własnego wolumenu (jednorazowo, interaktywnie):
+
+```bash
+docker compose build
+docker compose run --rm --entrypoint claude claude auth login --claudeai
+docker compose run --rm --entrypoint codex codex login --device-auth
+```
+
+Odczytaj limity i identyfikatory kont:
+
+```bash
+docker compose run --rm claude --probe
+docker compose run --rm codex --probe
+```
+
+Wartość `observed_account_fingerprint` wpisz jako `account_fingerprint`
+w `config/reviewer.toml`. To skrót konta, nie sekret. Ustaw też jawne modele
+w miejsce `PIN_AFTER_LIVE_PREFLIGHT`.
 
 Przed rozpoczęciem sesji sprawdź konfigurację:
 
 ```bash
-uv run peer-reviewer doctor \
-  --config config/reviewer.toml \
-  --sessions sessions
-docker compose config --quiet
+docker compose up -d
+docker compose exec -T engine peer-reviewer doctor \
+  --config /config/reviewer.toml --sessions /sessions
 ```
 
-Nie uruchamiaj prawdziwej recenzji, dopóki macierz testów opisana w
-[docs/feasibility.md](docs/feasibility.md) nie zakończy się powodzeniem dla obu
-dostawców.
+`doctor` odpytuje działające workery o świeży odczyt limitu, wersję CLI i konto.
 
 ## Docelowe uruchomienie w Dockerze
 
-Po uzupełnieniu obrazów workerów o zweryfikowane CLI, przygotowaniu OAuth
-i poprawnej konfiguracji przebieg będzie wyglądał następująco:
+Po zalogowaniu OAuth i uzupełnieniu konfiguracji:
 
 ```bash
 mkdir -p input sessions
@@ -153,10 +163,11 @@ zawiera kompletnej historii potrzebnej do odtworzenia procesu.
 - Nie montuj w kontenerach katalogu domowego hosta, kluczy SSH, magazynu sekretów
   ani gniazda Dockera.
 - Brak świeżych danych o limicie blokuje kolejną rundę zamiast ryzykować
-  niekontrolowane zużycie.
+  niekontrolowane zużycie. Odczyt limitu nie zużywa limitu.
 
 ## Dokumentacja
 
+- [Stan prac i lista do zrobienia](docs/status-2026-09-23.md)
 - [Instrukcja operacyjna](docs/operations.md)
 - [Stan wykonalności integracji](docs/feasibility.md)
 - [Wymagania produktu](dual-reviewer-wymagania.md)
@@ -165,6 +176,6 @@ zawiera kompletnej historii potrzebnej do odtworzenia procesu.
 ## Stan projektu
 
 Rdzeń, trwały zapis, sterowanie CLI i scenariusze awarii mają pokrycie testami
-offline. Produkcyjne **GO** wymaga nadal potwierdzenia działania obu CLI w
-docelowych kontenerach, logowania OAuth, świeżych odczytów limitów oraz
-rzeczywistego przebiegu recenzji.
+offline. Odczyt limitów i pojedyncze tury recenzji zweryfikowano na prawdziwych
+kontach na hoście. Do produkcyjnego **GO** brakuje logowania OAuth w kontenerach,
+wyłączenia płatnego użycia na kontach i przypięcia modeli.

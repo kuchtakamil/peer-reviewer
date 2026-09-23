@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 0,
+  "total_cost_usd": 0,
+  "duration_api_ms": 0,
+  "result": "You are currently using your subscription to power your Claude Code usage\n\nCurrent session: 4% used · resets Sep 23, 4:19pm (Europe/Warsaw)\nCurrent week (all models): 0% used · resets Sep 26, 12:59am (Europe/Warsaw)"
+}

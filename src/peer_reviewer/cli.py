@@ -130,23 +130,50 @@ def _start(source: Path, session: Path, config_path: Path) -> None:
         _atomic_text(active_path, json.dumps({"session": session.name}, sort_keys=True) + "\n")
 
 
+DOCTOR_WORKER_TIMEOUT_SECONDS = 120.0
+
+
+def _worker_issues(provider: str, reviewer: str, expected: dict[str, str], mailboxes: Path) -> list[str]:
+    """Ask the running worker for a fresh limit reading and compare it to the config."""
+    from peer_reviewer.worker import WorkerClient, WorkerError
+
+    inbox, outbox = mailboxes / provider / "inbox", mailboxes / provider / "outbox"
+    if not inbox.is_dir() or not outbox.is_dir():
+        return [
+            f"{provider} limit read unavailable: worker mailbox {inbox.parent} missing",
+            f"{provider} CLI version unverified",
+        ]
+    client = WorkerClient(reviewer, inbox, outbox, timeout_seconds=DOCTOR_WORKER_TIMEOUT_SECONDS)
+    try:
+        reading = client.limits()
+    except (WorkerError, OSError, ValueError) as exc:
+        return [f"{provider} limit read unavailable: {exc}", f"{provider} CLI version unverified"]
+    issues = []
+    if reading.get("cli_version") != expected["cli_version"]:
+        issues.append(
+            f"{provider} CLI version mismatch: expected {expected['cli_version']}, got {reading.get('cli_version') or 'unknown'}"
+        )
+    if reading.get("confidence") != "verified":
+        blockers = "; ".join(str(item) for item in reading.get("other_blockers", [])) or "unverified"
+        issues.append(f"{provider} limit read unavailable or unverified: {blockers}")
+    observed = reading.get("observed_account_fingerprint")
+    if observed and observed != expected["account_fingerprint"]:
+        issues.append(f"{provider} observed account fingerprint {observed}; set it in the config if this is the intended account")
+    return issues
+
+
 def _doctor(config_path: Path, sessions: Path) -> tuple[int, dict[str, Any]]:
     issues: list[str] = []
     try:
         config = load_config(config_path)
     except ConfigError as exc:
         return 1, {"ok": False, "issues": [str(exc)], "actions": []}
-    for provider in ("claude", "codex"):
-        reviewer = config["reviewers"][provider]
-        actual_version = os.environ.get(f"{provider.upper()}_CLI_VERSION")
-        if actual_version != reviewer["cli_version"]:
-            issues.append(
-                f"{provider} CLI version mismatch or unavailable: expected {reviewer['cli_version']}, got {actual_version or 'unknown'}"
-            )
-        if reviewer["account_fingerprint"].lower() in {"unconfigured", "unknown", "none"}:
+    mailboxes = Path(os.environ.get("PEER_REVIEWER_MAILBOXES", "/mailboxes"))
+    for reviewer, provider in (("A", "claude"), ("B", "codex")):
+        expected = config["reviewers"][provider]
+        if expected["account_fingerprint"].lower() in {"unconfigured", "unknown", "none"}:
             issues.append(f"{provider} subscription account is not configured")
-        if os.environ.get(f"{provider.upper()}_LIMIT_CONFIDENCE") != "verified":
-            issues.append(f"{provider} limit read unavailable or unverified")
+        issues.extend(_worker_issues(provider, reviewer, expected, mailboxes))
     try:
         sessions.mkdir(parents=True, exist_ok=True)
         descriptor, name = tempfile.mkstemp(prefix=".doctor-", dir=sessions)

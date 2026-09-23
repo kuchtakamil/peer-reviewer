@@ -1,23 +1,32 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
-from datetime import datetime
-from importlib.resources import files
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from peer_reviewer.adapters.app_server import read_account_limits
 from peer_reviewer.adapters.process import run_cli
 from peer_reviewer.adapters.shared import AdapterError, check_process_result, unknown_limit_sample
+from peer_reviewer.limits import account_fingerprint, normalize_limit
 from peer_reviewer.protocol import ProtocolError, parse_turn
+from peer_reviewer.schemas import provider_turn_schema
 from peer_reviewer.prompts import build_context, build_prompt
+
+LIMIT_SOURCE = "app-server"
+LIMIT_TIMEOUT_SECONDS = 30.0
 
 
 def build_argv(
     executable: Path, schema_path: Path, output_path: Path, model: str | None = None
 ) -> list[str]:
+    # `--ask-for-approval` is a top-level option; `codex exec` rejects it.
     argv = [
         str(executable),
+        "--ask-for-approval",
+        "never",
         "exec",
     ]
     if model:
@@ -27,8 +36,6 @@ def build_argv(
         "--sandbox",
         "read-only",
         "--ephemeral",
-        "--ask-for-approval",
-        "never",
         "--output-schema",
         str(schema_path),
         "--output-last-message",
@@ -67,9 +74,32 @@ class CodexAdapter:
         self.clock = clock
 
     def read_limits(self) -> dict[str, Any]:
+        """Read the five-hour window via App Server `account/rateLimits/read` (no turn)."""
         if self.limit_reader is not None:
             return self.limit_reader()
-        return unknown_limit_sample("codex", self.account_fingerprint, self.model_bucket, self.clock)
+        try:
+            account, limits = read_account_limits(
+                self.executable,
+                self.cwd,
+                self.env,
+                min(LIMIT_TIMEOUT_SECONDS, self.timeout_seconds),
+            )
+            details = account.get("account")
+            if not isinstance(details, dict) or details.get("type") != "chatgpt":
+                raise AdapterError("authentication", "Codex is not logged in with a ChatGPT subscription")
+            account_id = limits.get("accountId")
+            if not isinstance(account_id, str) or not account_id:
+                raise ValueError("rate limits lack an account identifier")
+        except (AdapterError, OSError, ValueError) as exc:
+            sample = unknown_limit_sample("codex", self.account_fingerprint, self.model_bucket, self.clock)
+            sample["source"] = LIMIT_SOURCE
+            sample["other_blockers"] = [f"codex limit read failed: {getattr(exc, 'code', type(exc).__name__)}"]
+            return sample
+        observed_at = (self.clock or (lambda: datetime.now(timezone.utc)))()
+        raw = {"account_fingerprint": account_fingerprint("codex", account_id), "rate_limits": limits}
+        return normalize_limit(
+            "codex", raw, observed_at, self.account_fingerprint, self.model_bucket, source=LIMIT_SOURCE
+        )
 
     def review(self, job: dict[str, Any]) -> dict[str, Any]:
         source = job["source"]
@@ -87,7 +117,10 @@ class CodexAdapter:
         if len(prompt.encode("utf-8")) > prompt_max_bytes:
             raise AdapterError("prompt_too_large", "Prompt exceeds configured byte limit")
 
-        schema_path = Path(str(files("peer_reviewer.schemas").joinpath("turn.json")))
+        descriptor, schema_name = tempfile.mkstemp(prefix="codex-schema-", suffix=".json", dir=self.cwd)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(provider_turn_schema(), handle)
+        schema_path = Path(schema_name)
         descriptor, output_name = tempfile.mkstemp(prefix="codex-last-", suffix=".json", dir=self.cwd)
         os.close(descriptor)
         output_path = Path(output_name)
@@ -112,3 +145,4 @@ class CodexAdapter:
             raise AdapterError("invalid_output", "Codex returned invalid final output") from exc
         finally:
             output_path.unlink(missing_ok=True)
+            schema_path.unlink(missing_ok=True)

@@ -47,3 +47,21 @@ def test_prompt_size_limit_fails_instead_of_truncating():
     context = build_context("x" * 100, {"round_no": 0}, ["correctness"])
     with pytest.raises(PromptTooLarge):
         build_prompt(context, "A", max_bytes=32)
+
+
+def test_prompt_states_turn_contract_with_next_ids_and_known_versions():
+    from peer_reviewer.prompts import build_context, build_prompt
+
+    state = {
+        "session_id": "s-001",
+        "round_no": 1,
+        "issues": {"A-1": {}, "A-2": {}, "B-1": {}},
+        "versions": {"v-a1": {}},
+        "arguments": {},
+        "positions": {},
+    }
+    prompt = build_prompt(build_context("Line.\n", state, ["correctness"]), "A")
+    assert "Number them A-3, A-4" in prompt
+    assert "A-r2-1, A-r2-2" in prompt
+    assert "(A-1, A-2, B-1)" in prompt
+    assert "(v-a1)" in prompt

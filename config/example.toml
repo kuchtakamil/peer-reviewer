@@ -17,15 +17,17 @@ prompt_max_bytes = 524288
 output_max_bytes = 1048576
 timeout_seconds = 900
 
+# account_fingerprint: run `docker compose run --rm claude --probe` (or codex) after
+# logging in and copy `observed_account_fingerprint`. It is a hash, not a secret.
 [reviewers.claude]
 model = "PIN_AFTER_LIVE_PREFLIGHT"
-cli_version = "PIN_AFTER_LIVE_PREFLIGHT"
+cli_version = "2.1.280"
 account_fingerprint = "unconfigured"
 model_bucket = "subscription"
 
 [reviewers.codex]
 model = "PIN_AFTER_LIVE_PREFLIGHT"
-cli_version = "PIN_AFTER_LIVE_PREFLIGHT"
+cli_version = "0.156.1"
 account_fingerprint = "unconfigured"
-model_bucket = "subscription"
+model_bucket = "codex"
 

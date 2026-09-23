@@ -7,6 +7,13 @@ x-hardened: &hardened
   restart: unless-stopped
   pids_limit: 128
   mem_limit: 512M
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+
+# Reviewer CLIs run on Node.js and need more memory than the engine.
+x-worker: &worker
+  <<: *hardened
+  mem_limit: 1536M
 
 services:
   engine:
@@ -36,7 +43,7 @@ services:
       - engine-work:/work
 
   claude:
-    <<: *hardened
+    <<: *worker
     build:
       context: .
       dockerfile: docker/Dockerfile.claude
@@ -53,7 +60,7 @@ services:
       - claude-auth:/auth
 
   codex:
-    <<: *hardened
+    <<: *worker
     build:
       context: .
       dockerfile: docker/Dockerfile.codex
@@ -62,7 +69,7 @@ services:
       PEER_REVIEWER_EXECUTABLE: /usr/local/bin/codex
       PEER_REVIEWER_REVIEWER: B
       PEER_REVIEWER_ACCOUNT_FINGERPRINT: ${CODEX_ACCOUNT_FINGERPRINT:-unconfigured}
-      PEER_REVIEWER_MODEL_BUCKET: ${CODEX_MODEL_BUCKET:-subscription}
+      PEER_REVIEWER_MODEL_BUCKET: ${CODEX_MODEL_BUCKET:-codex}
     volumes:
       - codex-inbox:/mailbox/inbox
       - codex-outbox:/mailbox/outbox

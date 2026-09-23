@@ -1,14 +1,25 @@
 FROM python:3.14-slim
 
+# Pinned reviewer CLI; bump only after the live preflight in docs/feasibility.md passes.
+ARG CLAUDE_CODE_VERSION=2.1.280
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
+    && npm install --global --no-audit --no-fund @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+    && npm cache clean --force \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 10001 reviewer
 WORKDIR /app
 RUN pip install --no-cache-dir "jsonschema>=4.25,<5"
 COPY src /app/src
-RUN mkdir -p /mailbox/inbox /mailbox/outbox /work/home /work/state /auth \
+RUN mkdir -p /mailbox/inbox /mailbox/outbox /work/home /work/state /auth/claude \
     && chown -R 10001:10001 /mailbox /work /auth
 ENV PYTHONPATH=/app/src \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HOME=/work/home
+    HOME=/work/home \
+    TZ=UTC \
+    CLAUDE_CONFIG_DIR=/auth/claude \
+    DISABLE_AUTOUPDATER=1
 USER 10001:10001
 ENTRYPOINT ["python", "-m", "peer_reviewer.worker", "--provider", "claude"]

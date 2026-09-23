@@ -1,8 +1,29 @@
 from __future__ import annotations
 
+import hashlib
 import math
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+FIVE_HOURS = timedelta(hours=5)
+# `/usage` shows reset times truncated to the minute.
+DISPLAY_RESOLUTION = timedelta(minutes=1)
+_USAGE_LINE = re.compile(
+    r"^Current (?P<label>session|week \(all models\)):\s*(?P<used>\d+(?:\.\d+)?)%\s*used"
+    r"(?:\s*·\s*resets\s+(?P<reset>.+?))?\s*$",
+    re.MULTILINE,
+)
+_RESET = re.compile(
+    r"^(?:(?P<month>[A-Z][a-z]{2})\s+(?P<day>\d{1,2})(?:,|\s+at)\s+)?"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>am|pm)?"
+    r"(?:\s+\((?P<zone>[^)]+)\))?$",
+    re.IGNORECASE,
+)
+_MONTHS = {name: number for number, name in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), start=1
+)}
 
 
 def _utc(value: datetime) -> datetime:
@@ -26,6 +47,107 @@ def _timestamp(value: Any) -> datetime:
 
 def _iso(value: datetime) -> str:
     return _utc(value).isoformat().replace("+00:00", "Z")
+
+
+def account_fingerprint(provider: str, account_id: str) -> str:
+    """Stable, non-reversible identifier of the provider account behind a worker."""
+    digest = hashlib.sha256(f"{provider}\0{account_id}".encode("utf-8")).hexdigest()
+    return f"{provider}:{digest[:16]}"
+
+
+def _parse_reset(text: str, now: datetime) -> datetime:
+    match = _RESET.match(text.strip())
+    if match is None:
+        raise ValueError(f"unrecognized reset time: {text!r}")
+    try:
+        zone = ZoneInfo(match["zone"]) if match["zone"] else timezone.utc
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown time zone: {match['zone']!r}") from exc
+    hour, minute = int(match["hour"]), int(match["minute"] or 0)
+    if match["ampm"]:
+        if not 1 <= hour <= 12:
+            raise ValueError("invalid 12-hour clock value")
+        hour = hour % 12 + (12 if match["ampm"].lower() == "pm" else 0)
+    local_now = now.astimezone(zone)
+    if match["month"]:
+        month = _MONTHS.get(match["month"].lower())
+        if month is None:
+            raise ValueError(f"unknown month: {match['month']!r}")
+        candidates = [
+            datetime(year, month, int(match["day"]), hour, minute, tzinfo=zone)
+            for year in (local_now.year - 1, local_now.year, local_now.year + 1)
+        ]
+        plausible = [c for c in candidates if -timedelta(days=1) <= c - local_now <= timedelta(days=8)]
+        if not plausible:
+            raise ValueError("reset date is not near the current time")
+        reset = plausible[0]
+    else:
+        reset = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if reset + DISPLAY_RESOLUTION <= local_now:
+            reset += timedelta(days=1)
+    return (reset + DISPLAY_RESOLUTION).astimezone(timezone.utc)
+
+
+def parse_claude_usage(text: str, now: datetime) -> dict[str, dict[str, Any]]:
+    """Parse the human-readable `claude -p /usage` report into rate-limit windows.
+
+    Any text that does not match the known layout raises ValueError, so a changed
+    CLI output becomes an unknown limit instead of a guess.
+    """
+    now = _utc(now)
+    windows: dict[str, dict[str, Any]] = {}
+    for match in _USAGE_LINE.finditer(text):
+        key = "five_hour" if match["label"] == "session" else "seven_day"
+        used = float(match["used"])
+        if not 0 <= used <= 100:
+            raise ValueError("used percentage outside 0..100")
+        if match["reset"]:
+            reset = _parse_reset(match["reset"], now)
+        elif used == 0 and key == "five_hour":
+            # No active window yet: the next one starts with the first request.
+            reset = now + FIVE_HOURS
+        else:
+            raise ValueError(f"{key} usage lacks a reset time")
+        windows[key] = {"used_percentage": used, "resets_at": reset}
+    if "five_hour" not in windows:
+        raise ValueError("usage report lacks the current session window")
+    return windows
+
+
+def _codex_five_hour(
+    limits: Any, bucket: str
+) -> tuple[float, datetime, list[dict[str, Any]]]:
+    if not isinstance(limits, dict):
+        raise ValueError("missing rate_limits")
+    by_id = limits.get("rateLimitsByLimitId")
+    snapshot = by_id.get(bucket) if isinstance(by_id, dict) else None
+    fallback = limits.get("rateLimits")
+    if snapshot is None and isinstance(fallback, dict) and fallback.get("limitId") == bucket:
+        snapshot = fallback
+    if not isinstance(snapshot, dict):
+        raise ValueError("missing model bucket")
+    if snapshot.get("spendControlReached") is True:
+        raise ValueError("spend control reached")
+    windows = [w for w in (snapshot.get("primary"), snapshot.get("secondary")) if isinstance(w, dict)]
+    matching = [w for w in windows if w.get("windowDurationMins") == 300]
+    if len(matching) != 1:
+        raise ValueError("missing unique 300-minute window")
+    five_hour = matching[0]
+    if limits.get("ordinaryUsageAllowed") is False and not any(
+        float(w.get("usedPercent", 0)) >= 100 for w in windows
+    ):
+        # Blocked for a reason no window explains, so there is no reset to wait for.
+        raise ValueError("ordinary usage is not allowed")
+    blockers = [
+        {
+            "kind": f"{w.get('windowDurationMins')}_minute",
+            "exhausted": True,
+            "resets_at": _iso(_timestamp(w["resetsAt"])),
+        }
+        for w in windows
+        if w is not five_hour and float(w.get("usedPercent", 0)) >= 100
+    ]
+    return float(five_hour["usedPercent"]), _timestamp(five_hour["resetsAt"]), blockers
 
 
 def _unknown_sample(
@@ -58,13 +180,18 @@ def normalize_limit(
     observed_at: datetime,
     account: str,
     bucket: str,
+    *,
+    source: str | None = None,
 ) -> dict[str, Any]:
     observed_at = _utc(observed_at)
-    source = "statusline" if provider == "claude" else "app-server"
+    source = source or ("usage-command" if provider == "claude" else "app-server")
     if provider not in {"claude", "codex"}:
         return _unknown_sample(provider, observed_at, account, bucket, source, "unknown provider", raw)
     if raw.get("account_fingerprint") != account:
-        return _unknown_sample(provider, observed_at, account, bucket, source, "account mismatch", raw)
+        mismatch = _unknown_sample(provider, observed_at, account, bucket, source, "account mismatch", raw)
+        if isinstance(raw.get("account_fingerprint"), str):
+            mismatch["observed_account_fingerprint"] = raw["account_fingerprint"]
+        return mismatch
 
     try:
         if provider == "claude":
@@ -87,22 +214,7 @@ def normalize_limit(
                     }
                 )
         else:
-            windows = raw.get("rate_limits")
-            if not isinstance(windows, list):
-                raise ValueError("missing rate_limits")
-            matching = [
-                item
-                for item in windows
-                if isinstance(item, dict)
-                and item.get("model_bucket") == bucket
-                and item.get("windowDurationMins") == 300
-            ]
-            if len(matching) != 1:
-                raise ValueError("missing unique 300-minute model bucket")
-            window = matching[0]
-            used = float(window["usedPercent"])
-            reset = _timestamp(window["resetsAt"])
-            other_blockers = list(raw.get("other_blockers", []))
+            used, reset, other_blockers = _codex_five_hour(raw.get("rate_limits"), bucket)
         if not math.isfinite(used) or not 0 <= used <= 100:
             raise ValueError("used percentage outside 0..100")
     except (KeyError, TypeError, ValueError, OverflowError) as exc:

@@ -1,14 +1,24 @@
 FROM python:3.14-slim
 
+# Pinned reviewer CLI; bump only after the live preflight in docs/feasibility.md passes.
+ARG CODEX_VERSION=0.156.1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
+    && npm install --global --no-audit --no-fund @openai/codex@${CODEX_VERSION} \
+    && npm cache clean --force \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --uid 10001 reviewer
 WORKDIR /app
 RUN pip install --no-cache-dir "jsonschema>=4.25,<5"
 COPY src /app/src
-RUN mkdir -p /mailbox/inbox /mailbox/outbox /work/home /work/state /auth \
+RUN mkdir -p /mailbox/inbox /mailbox/outbox /work/home /work/state /auth/codex \
     && chown -R 10001:10001 /mailbox /work /auth
 ENV PYTHONPATH=/app/src \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HOME=/work/home
+    HOME=/work/home \
+    TZ=UTC \
+    CODEX_HOME=/auth/codex
 USER 10001:10001
 ENTRYPOINT ["python", "-m", "peer_reviewer.worker", "--provider", "codex"]

@@ -1,0 +1,43 @@
+{
+  "ordinaryUsageAllowed": true,
+  "rateLimits": {
+    "limitId": "codex",
+    "limitName": null,
+    "normalModelSlug": null,
+    "primary": {"usedPercent": 73, "windowDurationMins": 300, "resetsAt": 1790173921},
+    "secondary": {"usedPercent": 80, "windowDurationMins": 10080, "resetsAt": 1790429046},
+    "credits": {"hasCredits": false, "unlimited": false, "balance": "0"},
+    "individualLimit": null,
+    "spendControlReached": false,
+    "planType": "plus",
+    "rateLimitReachedType": null
+  },
+  "rateLimitsByLimitId": {
+    "codex": {
+      "limitId": "codex",
+      "limitName": null,
+      "normalModelSlug": null,
+      "primary": {"usedPercent": 73, "windowDurationMins": 300, "resetsAt": 1790173921},
+      "secondary": {"usedPercent": 80, "windowDurationMins": 10080, "resetsAt": 1790429046},
+      "credits": {"hasCredits": false, "unlimited": false, "balance": "0"},
+      "individualLimit": null,
+      "spendControlReached": false,
+      "planType": "plus",
+      "rateLimitReachedType": null
+    },
+    "base_model_inference": {
+      "limitId": "base_model_inference",
+      "limitName": "gpt-reserve",
+      "normalModelSlug": "gpt-5.6-luna",
+      "primary": {"usedPercent": 0, "windowDurationMins": 10080, "resetsAt": 1790762338},
+      "secondary": null,
+      "credits": null,
+      "individualLimit": null,
+      "spendControlReached": null,
+      "planType": "plus",
+      "rateLimitReachedType": null
+    }
+  },
+  "accountId": "00000000-0000-4000-8000-0000000c0dec",
+  "rateLimitUpsell": null
+}

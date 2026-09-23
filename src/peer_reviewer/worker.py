@@ -4,6 +4,7 @@ import hashlib
 import argparse
 import json
 import os
+import subprocess
 import threading
 import time
 import uuid
@@ -120,6 +121,7 @@ class Worker:
         *,
         clock: Callable[[], datetime] | None = None,
         poll_seconds: float = 0.05,
+        cli_version: str | None = None,
     ) -> None:
         if reviewer not in {"A", "B"}:
             raise ValueError("reviewer must be A or B")
@@ -130,6 +132,7 @@ class Worker:
         self.state_directory = Path(state_directory)
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.poll_seconds = poll_seconds
+        self.cli_version = cli_version
         (self.state_directory / "running").mkdir(parents=True, exist_ok=True)
         (self.state_directory / "completed").mkdir(parents=True, exist_ok=True)
 
@@ -242,7 +245,18 @@ class Worker:
                         error_code=None,
                     )
                 else:
-                    response = _response(job, ok=False, result=None, error_code="target_not_running")
+                    # Jobs run one at a time, so an unknown target has not started here.
+                    # The tombstone keeps a late-published target from ever starting.
+                    _write_json(
+                        completed,
+                        {"job_id": target_id, "ok": False, "result": None, "error_code": "cancelled"},
+                    )
+                    response = _response(
+                        job,
+                        ok=True,
+                        result={"cancelled": target_id, "never_started": True},
+                        error_code=None,
+                    )
                 self._finish(job, response)
                 return True
             _write_json(self._running_path(job["job_id"]), job)
@@ -251,6 +265,8 @@ class Worker:
             elif job["kind"] == "limits":
                 try:
                     result = self.adapter.read_limits()
+                    if self.cli_version is not None and isinstance(result, dict):
+                        result = {**result, "cli_version": self.cli_version}
                     response = _response(job, ok=True, result=result, error_code=None)
                 except Exception as exc:
                     response = _response(job, ok=False, result=None, error_code=getattr(exc, "code", "worker_error"))
@@ -382,9 +398,36 @@ class WorkerPool:
         self.clients[reviewer].cancel(job_id)
 
 
+PASSTHROUGH_ENV = ("PATH", "TZ", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "DISABLE_AUTOUPDATER")
+DEFAULT_MODEL_BUCKETS = {"claude": "subscription", "codex": "codex"}
+
+
+def provider_env(environ: dict[str, str]) -> dict[str, str]:
+    """Minimal environment for reviewer CLIs: no API keys, only auth/config locations."""
+    env = {"HOME": "/work/home"}
+    env.update({name: environ[name] for name in PASSTHROUGH_ENV if environ.get(name)})
+    return env
+
+
+def cli_version(executable: Path, env: dict[str, str]) -> str | None:
+    """Version reported by the reviewer CLI, e.g. "2.1.280" from "2.1.280 (Claude Code)"."""
+    try:
+        completed = subprocess.run(
+            [str(executable), "--version"], capture_output=True, text=True, env=env, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return next((token for token in completed.stdout.split() if token[:1].isdigit()), None)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--provider", choices=("claude", "codex"), required=True)
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="print one limit reading (with the observed account fingerprint) and exit",
+    )
     args = parser.parse_args(argv)
     from peer_reviewer.adapters.claude import ClaudeAdapter
     from peer_reviewer.adapters.codex import CodexAdapter
@@ -392,22 +435,30 @@ def main(argv: list[str] | None = None) -> int:
     reviewer = os.environ.get("PEER_REVIEWER_REVIEWER", "A" if args.provider == "claude" else "B")
     options = {
         "cwd": Path("/work"),
-        "env": {"HOME": "/work/home", "PATH": os.environ.get("PATH", "")},
+        "env": provider_env(dict(os.environ)),
         "timeout_seconds": 900,
         "max_output_bytes": 1024 * 1024,
         "prompt_max_bytes": 512 * 1024,
         "source_max_bytes": 64 * 1024,
         "account_fingerprint": os.environ.get("PEER_REVIEWER_ACCOUNT_FINGERPRINT", "unconfigured"),
-        "model_bucket": os.environ.get("PEER_REVIEWER_MODEL_BUCKET", "subscription"),
+        "model_bucket": os.environ.get(
+            "PEER_REVIEWER_MODEL_BUCKET", DEFAULT_MODEL_BUCKETS[args.provider]
+        ),
     }
     adapter_type = ClaudeAdapter if args.provider == "claude" else CodexAdapter
-    adapter = adapter_type(Path(os.environ["PEER_REVIEWER_EXECUTABLE"]), **options)
+    executable = Path(os.environ["PEER_REVIEWER_EXECUTABLE"])
+    adapter = adapter_type(executable, **options)
+    version = cli_version(executable, options["env"])
+    if args.probe:
+        print(json.dumps(adapter.read_limits() | {"cli_version": version}, indent=2, sort_keys=True))
+        return 0
     worker = Worker(
         reviewer,
         adapter,
         Path("/mailbox/inbox"),
         Path("/mailbox/outbox"),
         Path("/work/state"),
+        cli_version=version,
     )
     while True:
         if not worker.run_once():

@@ -4,12 +4,12 @@
   "additionalProperties": false,
   "required": ["schema_version", "session_id", "round_no", "reviewer", "input_state_hash", "review_complete", "new_issues", "proposals", "positions"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"type": "integer", "const": 1},
     "session_id": {"type": "string", "minLength": 1},
     "round_no": {"type": "integer", "minimum": 1},
-    "reviewer": {"enum": ["A", "B"]},
+    "reviewer": {"type": "string", "enum": ["A", "B"]},
     "input_state_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "review_complete": {"const": true},
+    "review_complete": {"type": "boolean", "const": true},
     "new_issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}},
     "proposals": {"type": "array", "items": {"$ref": "#/$defs/proposal"}},
     "positions": {"type": "array", "items": {"$ref": "#/$defs/position"}}
@@ -33,7 +33,7 @@
       "required": ["id", "author", "anchor", "problem", "significance", "reasoning", "suggested_fix"],
       "properties": {
         "id": {"type": "string", "pattern": "^[AB]-[1-9][0-9]*$"},
-        "author": {"enum": ["A", "B"]},
+        "author": {"type": "string", "enum": ["A", "B"]},
         "anchor": {"$ref": "#/$defs/anchor"},
         "problem": {"$ref": "#/$defs/nonempty"},
         "significance": {"$ref": "#/$defs/nonempty"},
@@ -48,7 +48,7 @@
       "properties": {
         "problem": {"$ref": "#/$defs/nonempty"},
         "fix": {"type": "string"},
-        "resolution": {"enum": ["accepted", "rejected", "duplicate"]},
+        "resolution": {"type": "string", "enum": ["accepted", "rejected", "duplicate"]},
         "rationale": {"$ref": "#/$defs/nonempty"},
         "duplicate_of": {"type": ["string", "null"], "pattern": "^[AB]-[1-9][0-9]*$"},
         "closes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/hash"}}
@@ -70,7 +70,7 @@
       "required": ["issue_id", "action", "version_ref", "argument_id", "reason", "responds_to", "evidence"],
       "properties": {
         "issue_id": {"type": "string", "pattern": "^[AB]-[1-9][0-9]*$"},
-        "action": {"enum": ["accept", "oppose", "propose"]},
+        "action": {"type": "string", "enum": ["accept", "oppose", "propose"]},
         "version_ref": {"type": "string", "minLength": 1},
         "argument_id": {"type": "string", "pattern": "^[AB]-r[1-9][0-9]*-[1-9][0-9]*$"},
         "reason": {"$ref": "#/$defs/nonempty"},

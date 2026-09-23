@@ -180,6 +180,24 @@ def test_cancel_of_completed_target_acknowledges_proven_quiescence(tmp_path):
     assert responses["cancel-finished"]["result"]["already_stopped"] is True
 
 
+def test_cancel_of_never_seen_target_acknowledges_and_prevents_late_start(tmp_path):
+    inbox, outbox, state = tmp_path / "in", tmp_path / "out", tmp_path / "state"
+    adapter = RecordingAdapter()
+    worker = Worker("A", adapter, inbox, outbox, state)
+    target = job()
+    cancel = job("cancel-unseen", kind="cancel")
+    cancel["payload"] = {"target_job_id": target["job_id"]}
+    publish(inbox, cancel)
+    assert worker.run_once() is True
+    responses = {item["job_id"]: item for item in receive(outbox)}
+    assert responses["cancel-unseen"]["ok"] is True
+    assert responses["cancel-unseen"]["result"]["never_started"] is True
+
+    publish(inbox, target)
+    assert worker.run_once() is False
+    assert adapter.calls == 0
+
+
 def test_worker_client_rejects_late_attempt_response(tmp_path):
     inbox, outbox = tmp_path / "in", tmp_path / "out"
     client = WorkerClient("A", inbox, outbox, timeout_seconds=0.1)
@@ -218,3 +236,25 @@ def test_invalid_job_is_rejected_before_publish(tmp_path):
     del invalid["deadline"]
     with pytest.raises(MailboxError):
         client.submit(invalid)
+
+
+def test_provider_env_passes_auth_locations_but_never_api_keys():
+    from peer_reviewer.worker import provider_env
+
+    env = provider_env(
+        {
+            "PATH": "/usr/bin",
+            "TZ": "UTC",
+            "CLAUDE_CONFIG_DIR": "/auth/claude",
+            "CODEX_HOME": "/auth/codex",
+            "ANTHROPIC_API_KEY": "sk-ant-secret",
+            "OPENAI_API_KEY": "sk-secret",
+        }
+    )
+    assert env == {
+        "HOME": "/work/home",
+        "PATH": "/usr/bin",
+        "TZ": "UTC",
+        "CLAUDE_CONFIG_DIR": "/auth/claude",
+        "CODEX_HOME": "/auth/codex",
+    }

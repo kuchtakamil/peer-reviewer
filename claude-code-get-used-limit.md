@@ -1,3 +1,10 @@
+> **Wynik weryfikacji (2026-09-23, Claude Code 2.1.280):** statusLine **nie**
+> uruchamia się pod `-p`. Za to `/usage` **działa** w `-p`, wbrew punktowi 5 niżej:
+> `claude -p /usage --output-format json` zwraca procent i reset okna 5h przy
+> `num_turns: 0` i `total_cost_usd: 0`. To jest wdrożony preflight. Dodatkowo
+> `stream-json` emituje `rate_limit_event` po każdej odpowiedzi. Pełne wyniki są w
+> [docs/feasibility.md](docs/feasibility.md).
+
 Dobra wiadomość: **to pole istnieje i jest oficjalnie udokumentowane** — dokładnie w postaci, o którą pytasz (procent + czas resetu). Zła: kanał dostarczania jest zaprojektowany pod tryb interaktywny, a nie pod `-p`.
 
 ## Źródło prawdy: JSON status line

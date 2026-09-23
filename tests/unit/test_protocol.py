@@ -126,3 +126,41 @@ def test_changed_position_requires_argument_reference_or_new_source_evidence():
     value["positions"][0]["evidence"] = []
     with pytest.raises(ProtocolError, match="position change"):
         parse_turn(json.dumps(value).encode(), expected("B", round_no=2), state, SOURCE)
+
+
+def _keywords(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _keywords(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _keywords(item)
+
+
+def test_provider_schema_drops_keywords_rejected_by_provider_structured_output():
+    from peer_reviewer.schemas import provider_turn_schema
+
+    schema = provider_turn_schema()
+    assert not {"$schema", "uniqueItems", "minLength"} & set(_keywords(schema))
+    assert schema["additionalProperties"] is False
+    assert schema["$defs"]["position"]["required"] == [
+        "issue_id", "action", "version_ref", "argument_id", "reason", "responds_to", "evidence"
+    ]
+
+
+def test_every_provider_schema_node_declares_a_type():
+    from peer_reviewer.schemas import provider_turn_schema
+
+    def nodes(schema):
+        for name, node in schema.get("properties", {}).items():
+            yield name, node
+            yield from nodes(node)
+        if isinstance(schema.get("items"), dict):
+            yield "items", schema["items"]
+            yield from nodes(schema["items"])
+
+    schema = provider_turn_schema()
+    for definition in [schema, *schema["$defs"].values()]:
+        for name, node in nodes(definition):
+            assert "type" in node or "$ref" in node, name

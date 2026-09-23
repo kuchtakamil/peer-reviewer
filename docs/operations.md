@@ -2,26 +2,69 @@
 
 ## Deployment status
 
-The offline implementation is usable with fixture workers. Production remains **NO-GO** until the live capability matrix in `docs/feasibility.md` confirms a fresh, non-generative five-hour limit reading for both subscriptions. In particular, the current Claude limit reader is a conservative stub and always yields `unknown`.
-
-Pin both CLI versions and explicit model names in the configuration after that preflight. The example values in `config/example.toml` are deliberately invalid deployment placeholders.
+The limit preflight works for both providers. Claude uses `claude -p /usage`,
+Codex uses App Server `account/rateLimits/read`; neither reading runs a model turn
+(see `docs/feasibility.md`). The worker images install the pinned CLIs: Claude Code
+2.1.280 and Codex 0.156.1. Production GO still requires the container OAuth login
+below, disabled extra usage on both accounts, pinned model names, and one real
+review run.
 
 ## OAuth and billing controls
 
-Provision each CLI's OAuth login in its own named authentication volume. The Claude worker receives only `claude-auth`; the Codex worker receives only `codex-auth`. Do the interactive login as a separate provisioning action, then return both services to `tty: false` and `stdin_open: false`. Never mount a host home directory, SSH directory, credential vault, or Docker socket.
+Each CLI logs in once into its own named volume. The Claude worker receives only
+`claude-auth` (`CLAUDE_CONFIG_DIR=/auth/claude`); the Codex worker receives only
+`codex-auth` (`CODEX_HOME=/auth/codex`). The login is a one-off interactive
+`docker compose run`. The long-running services keep `tty: false` and
+`stdin_open: false`.
 
-Disable additional paid usage, credits, and API fallback in each provider account before deployment. Removing an API key from the container is useful isolation, but it does not prove that account-level extra usage is disabled. Verify the account fingerprint and subscription bucket reported by the limit probe. The Compose file forwards no API-key environment variables.
+```bash
+docker compose build
+# Claude: prints a URL; open it, approve, paste the code back.
+docker compose run --rm --entrypoint claude claude auth login --claudeai
+# Codex: device-code flow, works without a browser in the container.
+docker compose run --rm --entrypoint codex codex login --device-auth
+```
 
-When rotating a token, stop the affected worker, refresh only its authentication volume, run `doctor`, and restart the worker. Do not copy one provider's authentication files into the other worker.
+Then read the limits and account fingerprints:
+
+```bash
+docker compose run --rm claude --probe
+docker compose run --rm codex --probe
+```
+
+Both readings must show `"confidence": "verified"` once the fingerprints are
+configured. On the first run they show `account mismatch` together with
+`observed_account_fingerprint`. Copy each value into
+`reviewers.<provider>.account_fingerprint`. A fingerprint is a hash of the
+provider account id, not a secret.
+
+Never mount a host home directory, SSH directory, credential vault, or Docker
+socket. Do not copy host credentials into the volumes: both providers rotate
+refresh tokens, so two copies of one login invalidate each other.
+
+Disable additional paid usage, credits, and API fallback in each provider account
+before deployment. Removing an API key from the container is useful isolation, but
+it does not prove that account-level extra usage is disabled. The Compose file
+forwards no API-key environment variables, and the worker passes only `HOME`,
+`PATH`, `TZ`, the auth directory and `DISABLE_AUTOUPDATER` to the CLIs.
+
+When rotating a token, stop the affected worker, refresh only its authentication
+volume, run `doctor`, and restart the worker. Do not copy one provider's
+authentication files into the other worker.
 
 ## Configuration and startup
 
 Copy `config/example.toml` to `config/reviewer.toml`, replace every preflight placeholder, and keep the selected models explicit. Validate the deployment before starting a session:
 
 ```bash
-peer-reviewer doctor --config config/reviewer.toml --sessions sessions
 docker compose config --quiet
+docker compose up -d claude codex engine
+docker compose exec -T engine peer-reviewer doctor --config /config/reviewer.toml --sessions /sessions
 ```
+
+`doctor` sends a `limits` job to each running worker. It reports a CLI version
+that differs from `cli_version`, an unconfigured or different account, and any
+unverified limit reading.
 
 Start locally with:
 
@@ -90,17 +133,24 @@ The offline suite covers deterministic debates, crash boundaries, pauses, comman
 
 The one-hour product criterion describes the normal user scenario. It is not a time guarantee when either subscription is paused or its limit telemetry is unavailable. A clock-controlled reset test does not replace the separate long-running real-reset trial.
 
-## Offline acceptance result
+## Acceptance results
 
-On 2026-09-20 the offline acceptance completed with these results:
+On 2026-09-20 the offline acceptance passed: 149 tests, compose config, and the
+package build.
 
-- unit and integration: 142 passed, 1 live test deselected;
-- Docker-marked E2E fixtures: 7 passed, 1 live test deselected;
-- full offline suite: 149 passed, 2 live tests deselected;
-- `docker compose config --quiet`: passed;
-- source distribution and wheel build: passed.
+On 2026-09-23:
 
-This is an offline GO for the deterministic engine and fixture workers. Production
-remains **NO-GO** because the real Claude limit read, OAuth/account controls,
-provider CLI versions, container images, and subscription model names have not
-passed the live capability matrix.
+- full offline suite: 193 passed, 2 live tests skipped;
+- worker images build with the pinned CLIs and run under the hardened Compose
+  settings (read-only root, `cap_drop: ALL`, tmpfs `/tmp`);
+- host-side live limit reads: Claude `/usage` and Codex App Server both verified;
+- live end-to-end session on the host with the real engine, workers and CLIs
+  (Claude `claude-sonnet-5`, Codex `gpt-6-astra`, `max_rounds = 3`): `doctor` OK,
+  3 rounds and 6 turns, each accepted on its first attempt, in 440 s. Outcome:
+  `NO_CONSENSUS`, with one agreed issue, one duplicate link, and one reasoned
+  dispute. Reviewer A changed its fix in response to B's counter-argument;
+- the live runs exposed three defects that fixtures could not catch, all fixed:
+  `--ask-for-approval` placed after `codex exec`, a turn schema rejected by both
+  providers' structured-output validators, and a prompt that did not state the
+  turn contract;
+- container-side reads return `authentication` until the OAuth login above is done.
