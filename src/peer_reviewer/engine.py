@@ -361,6 +361,7 @@ class Engine:
                 "reviewer": reviewer,
                 "expected": expected,
                 "model": self.config.get("reviewers", {}).get(provider, {}).get("model"),
+                "effort": self.config.get("reviewers", {}).get(provider, {}).get("effort"),
                 "process": process,
             },
             "deadline": _iso(self.clock.now() + timedelta(seconds=timeout_seconds)),

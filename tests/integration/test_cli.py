@@ -32,12 +32,14 @@ timeout_seconds = 900
 
 [reviewers.claude]
 model = "fixture-claude"
+effort = "high"
 cli_version = "fixture"
 account_fingerprint = "claude:fixture"
 model_bucket = "subscription"
 
 [reviewers.codex]
 model = "fixture-codex"
+effort = "high"
 cli_version = "fixture"
 account_fingerprint = "codex:fixture"
 model_bucket = "subscription"
@@ -160,6 +162,18 @@ def test_doctor_reports_unverified_subscription_and_never_api_fallback(tmp_path,
     assert any("limit read unavailable" in item for item in result["issues"])
     assert any("CLI version" in item for item in result["issues"])
     assert "API" not in json.dumps(result.get("actions", []))
+
+
+def test_doctor_reports_unpinned_model_placeholder(tmp_path, capsys):
+    config = tmp_path / "reviewer.toml"
+    write_config(config)
+    config.write_text(
+        config.read_text().replace('"fixture-codex"', '"PIN_AFTER_LIVE_PREFLIGHT"'), encoding="utf-8"
+    )
+    assert main(["doctor", "--config", str(config), "--sessions", str(tmp_path / "sessions")]) == 1
+    issues = json.loads(capsys.readouterr().out)["issues"]
+    assert "codex model is not pinned: PIN_AFTER_LIVE_PREFLIGHT" in issues
+    assert not any(item.startswith("claude model") for item in issues)
 
 
 class DoctorAdapter:

@@ -173,6 +173,8 @@ def _doctor(config_path: Path, sessions: Path) -> tuple[int, dict[str, Any]]:
         expected = config["reviewers"][provider]
         if expected["account_fingerprint"].lower() in {"unconfigured", "unknown", "none"}:
             issues.append(f"{provider} subscription account is not configured")
+        if expected["model"].upper().startswith("PIN_"):
+            issues.append(f"{provider} model is not pinned: {expected['model']}")
         issues.extend(_worker_issues(provider, reviewer, expected, mailboxes))
     try:
         sessions.mkdir(parents=True, exist_ok=True)

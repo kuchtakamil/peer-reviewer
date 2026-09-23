@@ -21,12 +21,16 @@ timeout_seconds = 900
 # logging in and copy `observed_account_fingerprint`. It is a hash, not a secret.
 [reviewers.claude]
 model = "PIN_AFTER_LIVE_PREFLIGHT"
+# low | medium | high | xhigh | max
+effort = "high"
 cli_version = "2.1.280"
 account_fingerprint = "unconfigured"
 model_bucket = "subscription"
 
 [reviewers.codex]
 model = "PIN_AFTER_LIVE_PREFLIGHT"
+# Allowed values depend on the model: see `supported_reasoning_levels` in `codex debug models`.
+effort = "high"
 cli_version = "0.156.1"
 account_fingerprint = "unconfigured"
 model_bucket = "codex"

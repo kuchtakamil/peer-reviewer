@@ -83,7 +83,11 @@ docker compose run --rm codex --probe
 
 Wartość `observed_account_fingerprint` wpisz jako `account_fingerprint`
 w `config/reviewer.toml`. To skrót konta, nie sekret. Ustaw też jawne modele
-w miejsce `PIN_AFTER_LIVE_PREFLIGHT`.
+w miejsce `PIN_AFTER_LIVE_PREFLIGHT`: dla Claude pełny identyfikator
+(np. `claude-opus-5-5`, nie alias `opus`), dla Codexa `slug` z `codex debug models`.
+Pole `effort` jest wymagane. Claude przyjmuje `low`, `medium`, `high`, `xhigh`
+lub `max`. Dla Codexa dozwolone wartości zależą od modelu (`supported_reasoning_levels`
+w `codex debug models`).
 
 Przed rozpoczęciem sesji sprawdź konfigurację:
 

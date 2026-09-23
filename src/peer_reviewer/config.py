@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,10 @@ DEFAULT_PROCESS = {
     "output_max_bytes": 1024 * 1024,
     "timeout_seconds": 15 * 60,
 }
+# Claude's `--effort` choices are fixed by the CLI; Codex's depend on the model, so
+# only the token shape is checked before it lands in a `-c` TOML override.
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+CODEX_EFFORT = re.compile(r"[a-z]+")
 
 
 def _positive_int(value: Any, name: str, *, minimum: int = 1) -> int:
@@ -72,8 +77,12 @@ def load_config(path: Path) -> dict[str, Any]:
             raise ConfigError(f"reviewers.{provider} must be a table")
         normalized_reviewers[provider] = {
             field: _nonempty_string(reviewer.get(field), f"reviewers.{provider}.{field}")
-            for field in ("model", "cli_version", "account_fingerprint", "model_bucket")
+            for field in ("model", "effort", "cli_version", "account_fingerprint", "model_bucket")
         }
+    if normalized_reviewers["claude"]["effort"] not in CLAUDE_EFFORTS:
+        raise ConfigError("reviewers.claude.effort must be one of: " + ", ".join(CLAUDE_EFFORTS))
+    if not CODEX_EFFORT.fullmatch(normalized_reviewers["codex"]["effort"]):
+        raise ConfigError("reviewers.codex.effort must be a lowercase effort name")
 
     return {
         "session": copy.deepcopy(session),

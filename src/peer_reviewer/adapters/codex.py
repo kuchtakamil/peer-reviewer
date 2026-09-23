@@ -20,7 +20,11 @@ LIMIT_TIMEOUT_SECONDS = 30.0
 
 
 def build_argv(
-    executable: Path, schema_path: Path, output_path: Path, model: str | None = None
+    executable: Path,
+    schema_path: Path,
+    output_path: Path,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> list[str]:
     # `--ask-for-approval` is a top-level option; `codex exec` rejects it.
     argv = [
@@ -31,6 +35,9 @@ def build_argv(
     ]
     if model:
         argv.extend(["--model", model])
+    if effort:
+        # `codex exec` has no effort flag; the config override is the supported route.
+        argv.extend(["-c", f'model_reasoning_effort="{effort}"'])
     argv.extend([
         "--skip-git-repo-check",
         "--sandbox",
@@ -126,7 +133,9 @@ class CodexAdapter:
         output_path = Path(output_name)
         try:
             result = run_cli(
-                build_argv(self.executable, schema_path, output_path, job.get("model")),
+                build_argv(
+                    self.executable, schema_path, output_path, job.get("model"), job.get("effort")
+                ),
                 prompt.encode("utf-8"),
                 self.cwd,
                 self.env,

@@ -22,13 +22,17 @@ LIMIT_TIMEOUT_SECONDS = 60.0
 LIMIT_OUTPUT_BYTES = 64 * 1024
 
 
-def build_argv(executable: Path, schema: str, model: str | None = None) -> list[str]:
+def build_argv(
+    executable: Path, schema: str, model: str | None = None, effort: str | None = None
+) -> list[str]:
     argv = [
         str(executable),
         "-p",
     ]
     if model:
         argv.extend(["--model", model])
+    if effort:
+        argv.extend(["--effort", effort])
     argv.extend([
         "--output-format",
         "stream-json",
@@ -168,7 +172,7 @@ class ClaudeAdapter:
             raise AdapterError("prompt_too_large", "Prompt exceeds configured byte limit")
         schema = json.dumps(provider_turn_schema(), separators=(",", ":"))
         result = run_cli(
-            build_argv(self.executable, schema, job.get("model")),
+            build_argv(self.executable, schema, job.get("model"), job.get("effort")),
             prompt.encode("utf-8"),
             self.cwd,
             self.env,

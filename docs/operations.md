@@ -54,7 +54,7 @@ authentication files into the other worker.
 
 ## Configuration and startup
 
-Copy `config/example.toml` to `config/reviewer.toml`, replace every preflight placeholder, and keep the selected models explicit. Validate the deployment before starting a session:
+Copy `config/example.toml` to `config/reviewer.toml`, replace every preflight placeholder, and keep the selected models and `effort` levels explicit (`doctor` rejects an unreplaced `PIN_` model). Validate the deployment before starting a session:
 
 ```bash
 docker compose config --quiet

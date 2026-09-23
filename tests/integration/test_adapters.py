@@ -162,6 +162,7 @@ def test_job_process_limits_and_model_override_adapter_defaults(tmp_path, monkey
     adapter = ClaudeAdapter(tmp_path / "claude", **adapter_options(tmp_path))
     request = adapter_job("A") | {
         "model": "pinned-model",
+        "effort": "xhigh",
         "process": {
             "source_max_bytes": 1024,
             "prompt_max_bytes": 2048,
@@ -173,6 +174,7 @@ def test_job_process_limits_and_model_override_adapter_defaults(tmp_path, monkey
     assert captured["timeout"] == 7
     assert captured["output"] == 4096
     assert captured["argv"][captured["argv"].index("--model") + 1] == "pinned-model"
+    assert captured["argv"][captured["argv"].index("--effort") + 1] == "xhigh"
 
 
 def test_nonzero_exit_rejects_even_valid_claude_json_without_echoing_secret(tmp_path):
@@ -383,15 +385,16 @@ def test_hanging_codex_app_server_times_out_as_unknown(tmp_path):
 
 
 def test_review_argv_disable_tools_persistence_and_write_access(tmp_path):
-    claude = build_claude_argv(Path("claude"), "{}", "claude-pinned")
-    codex = build_codex_argv(Path("codex"), tmp_path / "schema.json", tmp_path / "last.json", "codex-pinned")
+    claude = build_claude_argv(Path("claude"), "{}", "claude-pinned", "high")
+    codex = build_codex_argv(Path("codex"), tmp_path / "schema.json", tmp_path / "last.json", "codex-pinned", "xhigh")
     assert claude == [
-        "claude", "-p", "--model", "claude-pinned", "--output-format", "stream-json", "--verbose",
+        "claude", "-p", "--model", "claude-pinned", "--effort", "high", "--output-format", "stream-json", "--verbose",
         "--json-schema", "{}",
         "--tools", "", "--permission-mode", "dontAsk", "--no-session-persistence",
     ]
     assert codex == [
         "codex", "--ask-for-approval", "never", "exec", "--model", "codex-pinned",
+        "-c", 'model_reasoning_effort="xhigh"',
         "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--output-schema",
         str(tmp_path / "schema.json"), "--output-last-message", str(tmp_path / "last.json"), "-",
     ]

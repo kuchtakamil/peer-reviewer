@@ -34,11 +34,13 @@ output_max_bytes = 1048576
 timeout_seconds = 30
 [reviewers.claude]
 model = "fixture-a"
+effort = "high"
 cli_version = "fixture"
 account_fingerprint = "claude:fixture"
 model_bucket = "subscription"
 [reviewers.codex]
 model = "fixture-b"
+effort = "high"
 cli_version = "fixture"
 account_fingerprint = "codex:fixture"
 model_bucket = "subscription"

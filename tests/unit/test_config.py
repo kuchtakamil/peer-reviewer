@@ -23,12 +23,14 @@ timeout_seconds = 900
 
 [reviewers.claude]
 model = "claude-fixture"
+effort = "high"
 cli_version = "unverified"
 account_fingerprint = "fixture:claude"
 model_bucket = "subscription"
 
 [reviewers.codex]
 model = "codex-fixture"
+effort = "high"
 cli_version = "0.155.1"
 account_fingerprint = "fixture:codex"
 model_bucket = "fixture-bucket"
@@ -50,6 +52,7 @@ def test_load_config_applies_validated_process_defaults(tmp_path):
         "max_age_seconds": 60,
     }
     assert config["reviewers"]["claude"]["model"] == "claude-fixture"
+    assert config["reviewers"]["claude"]["effort"] == "high"
 
 
 @pytest.mark.parametrize(
@@ -58,6 +61,9 @@ def test_load_config_applies_validated_process_defaults(tmp_path):
         ("max_rounds = 5", "max_rounds = 0", "max_rounds"),
         ("minimum_remaining_percent = 20", "minimum_remaining_percent = 101", "minimum_remaining_percent"),
         ('model = "claude-fixture"', 'model = ""', "model"),
+        ('model = "claude-fixture"\neffort = "high"', 'model = "claude-fixture"', "reviewers.claude.effort"),
+        ('model = "claude-fixture"\neffort = "high"', 'model = "claude-fixture"\neffort = "ultra"', "reviewers.claude.effort"),
+        ('model = "codex-fixture"\neffort = "high"', 'model = "codex-fixture"\neffort = "high\\" x"', "reviewers.codex.effort"),
     ],
 )
 def test_load_config_rejects_unsafe_values(tmp_path, old, new, message):
@@ -72,6 +78,7 @@ def test_load_config_rejects_unsafe_values(tmp_path, old, new, message):
     [
         ("max_rounds = 5", "max_rounds = 4", "max_rounds"),
         ('model = "codex-fixture"', 'model = "codex-other"', "reviewers"),
+        ('model = "codex-fixture"\neffort = "high"', 'model = "codex-fixture"\neffort = "low"', "reviewers"),
         ('criteria = ["technical correctness", "missing assumptions"]', 'criteria = ["style"]', "criteria"),
     ],
 )

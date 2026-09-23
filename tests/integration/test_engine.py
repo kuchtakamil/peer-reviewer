@@ -180,12 +180,14 @@ def store_for(tmp_path, *, max_rounds=5, veto_seconds=5, minimum_remaining=20, f
             "reviewers": {
                 "claude": {
                     "model": "fixture-a",
+                    "effort": "high",
                     "cli_version": "fixture",
                     "account_fingerprint": "claude:fixture",
                     "model_bucket": "subscription",
                 },
                 "codex": {
                     "model": "fixture-b",
+                    "effort": "high",
                     "cli_version": "fixture",
                     "account_fingerprint": "codex:fixture",
                     "model_bucket": "subscription",
@@ -443,6 +445,16 @@ def test_attempt_identity_is_unique_across_rounds_and_human_retry_grants(tmp_pat
     run_until(engine, clock, "NO_PROGRESS")
     attempt_ids = [job["attempt_id"] for job in workers.submissions]
     assert len(set(attempt_ids)) >= 3
+
+
+def test_review_jobs_carry_each_reviewers_pinned_model_and_effort(tmp_path):
+    clock = Clock()
+    workers = Workers(clock)
+    engine = Engine(store_for(tmp_path), workers, Control(), clock)
+    run_until(engine, clock, "REVIEWING_B")
+    payloads = {job["reviewer"]: job["payload"] for job in workers.submissions if job["kind"] == "review"}
+    assert (payloads["A"]["model"], payloads["A"]["effort"]) == ("fixture-a", "high")
+    assert (payloads["B"]["model"], payloads["B"]["effort"]) == ("fixture-b", "high")
 
 
 def test_human_retry_grant_starts_with_a_new_attempt_identity(tmp_path):
